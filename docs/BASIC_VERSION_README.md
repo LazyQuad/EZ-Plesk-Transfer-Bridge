@@ -23,9 +23,9 @@ EZ-Plesk-Transfer-Bridge-Basic is a streamlined bash script for migrating Plesk 
 
 1. Copy the script to your bridge server.
 2. Make the script executable:
-   chmod +x EZ-Plesk-Transfer-Bridge-Basic.sh
+   `chmod +x EZ-Plesk-Transfer-Bridge-Basic.sh`
 3. Run the script:
-   ./EZ-Plesk-Transfer-Bridge-Basic.sh
+   `./EZ-Plesk-Transfer-Bridge-Basic.sh`
 4. Follow the interactive prompts to provide server details and domain information.
 
 ## Script Workflow
