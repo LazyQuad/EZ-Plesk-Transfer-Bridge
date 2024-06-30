@@ -1,7 +1,7 @@
 #!/bin/bash
 clear
 
-VERSION="1.0.1"
+VERSION="1.0.2"
 SCRIPT_NAME="EZ-Plesk-Transfer-Bridge-Pro"
 GITHUB_PAGE="https://github.com/LazyQuad/EZ-Plesk-Transfer-Bridge"
 
@@ -12,6 +12,11 @@ echo "========================================================"
 echo
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if ! setup_logging; then
+    echo "Failed to set up logging. Exiting."
+    exit 1
+fi
+
 DEFAULT_CONFIG_FILE="$SCRIPT_DIR/config/Pro-Config.conf"
 CONFIG_FILE="$DEFAULT_CONFIG_FILE"
 LOG_FILE="$SCRIPT_DIR/logs/transfer_bridge_$(date +'%Y%m%d_%H%M%S').log"
@@ -25,6 +30,43 @@ log_message() {
     local level="$1"
     local message="$2"
     echo "$(date +'%Y-%m-%d %H:%M:%S') [$level] - $message" | tee -a "$LOG_FILE"
+}
+
+setup_logging() {
+    local log_dir="$SCRIPT_DIR/logs"
+    
+    # Check if log directory exists, if not create it
+    if [ ! -d "$log_dir" ]; then
+        echo "Log directory does not exist. Creating it now."
+        mkdir -p "$log_dir"
+        if [ $? -ne 0 ]; then
+            echo "Failed to create log directory. Please check permissions."
+            return 1
+        fi
+    fi
+
+    # Check if the directory is writable
+    if [ ! -w "$log_dir" ]; then
+        echo "Log directory is not writable. Attempting to set correct permissions."
+        chmod 755 "$log_dir"
+        if [ $? -ne 0 ]; then
+            echo "Failed to set permissions on log directory. Please check permissions."
+            return 1
+        fi
+    fi
+
+    # Set the log file path
+    LOG_FILE="$log_dir/transfer_bridge_$(date +'%Y%m%d_%H%M%S').log"
+
+    # Test if we can write to the log file
+    touch "$LOG_FILE" 2>/dev/null
+    if [ $? -ne 0 ]; then
+        echo "Cannot write to log file. Please check permissions."
+        return 1
+    fi
+
+    echo "Logging setup completed successfully. Log file: $LOG_FILE"
+    return 0
 }
 
 verbose_log() {
