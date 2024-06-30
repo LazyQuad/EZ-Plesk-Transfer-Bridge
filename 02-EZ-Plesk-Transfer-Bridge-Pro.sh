@@ -25,6 +25,7 @@ log_message() {
     local level="$1"
     local message="$2"
     echo "$(date +'%Y-%m-%d %H:%M:%S') [$level] - $message" | tee -a "$LOG_FILE"
+    echo  # Add a newline for readability
 }
 
 setup_logging() {
@@ -262,6 +263,12 @@ parse_args() {
 
 main() {
     parse_args "$@"
+
+    if ! setup_logging; then
+        echo "Failed to set up logging. Exiting."
+        return 1
+    fi
+
     read_config
 
     log_message "INFO" "Starting EZ-Plesk-Transfer-Bridge-Pro v$VERSION"
@@ -274,10 +281,7 @@ main() {
         return 1
     fi
 
-    if ! setup_logging; then
-        echo "Failed to set up logging. Exiting."
-        return 1
-    fi
+
 
     # Gather server information if not provided in config
     [ -z "$SOURCE_SERVER" ] && SOURCE_SERVER=$(prompt_input "Enter the source server IP or domain" "")
