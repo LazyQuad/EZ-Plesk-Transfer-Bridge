@@ -12,12 +12,6 @@ echo "========================================================"
 echo
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-if ! setup_logging; then
-    echo "Failed to set up logging. Exiting."
-    return 1
-fi
-
-
 DEFAULT_CONFIG_FILE="$SCRIPT_DIR/config/Pro-Config.conf"
 CONFIG_FILE="$DEFAULT_CONFIG_FILE"
 LOG_FILE="$SCRIPT_DIR/logs/transfer_bridge_$(date +'%Y%m%d_%H%M%S').log"
@@ -277,6 +271,11 @@ main() {
 
     if ! check_sshpass; then
         log_message "ERROR" "sshpass is required but not installed. Please install it and try again."
+        return 1
+    fi
+
+    if ! setup_logging; then
+        echo "Failed to set up logging. Exiting."
         return 1
     fi
 
