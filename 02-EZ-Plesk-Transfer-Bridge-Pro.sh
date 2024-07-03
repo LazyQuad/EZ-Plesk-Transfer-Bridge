@@ -448,14 +448,21 @@ else
         if [ "$COMPRESS_BACKUP" = true ]; then
             verbose_log "Compressing backup file..."
             TRANSFER_FILE=$(compress_backup "$SOURCE_USER" "$SOURCE_SERVER_IP" "$SOURCE_PORT" "$BACKUP_FILE")
-            if [ $? -ne 0 ]; then
-                log_message "ERROR" "Failed to compress backup for domain $DOMAIN. Skipping."
-                continue
+            compression_status=$?
+            verbose_log "Compression result: $TRANSFER_FILE (Status: $compression_status)"
+            if [ $compression_status -ne 0 ]; then
+                log_message "WARNING" "Compression failed. Using uncompressed file for transfer."
+                TRANSFER_FILE="$BACKUP_FILE"
             fi
-            verbose_log "Backup file compressed: $TRANSFER_FILE"
         else
             TRANSFER_FILE="$BACKUP_FILE"
         fi
+
+        # Verify the file exists before transfer
+        ssh -p "$SOURCE_PORT" $([[ "$USE_KEY_AUTH" = true ]] && echo "-i $SSH_KEY_PATH") "$SOURCE_USER@$SOURCE_SERVER_IP" "ls -l $TRANSFER_FILE" || {
+            log_message "ERROR" "Transfer file $TRANSFER_FILE does not exist on source server. Skipping domain $DOMAIN."
+            continue
+        }
 
         # Transfer backup to target server
         log_message "INFO" "Transferring backup to target server..."
@@ -463,7 +470,7 @@ else
             log_message "INFO" "[DRY RUN] Would transfer $TRANSFER_FILE of $DOMAIN to target server"
         else
             verbose_log "Starting file transfer..."
-            if ! scp -P "$SOURCE_PORT" $([[ "$USE_KEY_AUTH" = true ]] && echo "-i $SSH_KEY_PATH") "$SOURCE_USER@$SOURCE_SERVER_IP:$TRANSFER_FILE" "$TARGET_USER@$TARGET_SERVER_IP:$TRANSFER_FILE"; then
+            if ! eval "$scp_command"; then
                 log_message "ERROR" "Failed to transfer backup for domain $DOMAIN. Skipping."
                 cleanup_backup "$SOURCE_USER" "$SOURCE_SERVER_IP" "$SOURCE_PORT" "$BACKUP_FILE"
                 continue
