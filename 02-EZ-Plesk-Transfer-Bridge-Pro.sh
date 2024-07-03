@@ -1,7 +1,7 @@
 #!/bin/bash
 clear
 
-VERSION="1.1.0"
+VERSION="1.2.0"
 SCRIPT_NAME="EZ-Plesk-Transfer-Bridge-Pro"
 GITHUB_PAGE="https://github.com/LazyQuad/EZ-Plesk-Transfer-Bridge"
 
@@ -138,19 +138,15 @@ cleanup_backup() {
     local server_ip=$2
     local port=$3
     local backup_file=$4
-    log_message "INFO" "Cleaning up backup file on server $server_ip..."
+    log_message "INFO" "Cleaning up backup files on server $server_ip..."
     if [ "$DRY_RUN" = true ]; then
-        log_message "INFO" "[DRY RUN] Would remove backup file $backup_file on $server_ip"
+        log_message "INFO" "[DRY RUN] Would remove backup files $backup_file and ${backup_file}.gz on $server_ip"
     else
-        if [ "$USE_KEY_AUTH" = true ]; then
-            ssh -p "$port" -i "$SSH_KEY_PATH" "$user@$server_ip" "rm -f $backup_file $backup_file.gz"
-        else
-            ssh -p "$port" "$user@$server_ip" "rm -f $backup_file $backup_file.gz"
-        fi
+        ssh $([[ "$USE_KEY_AUTH" = true ]] && echo "-i $SSH_KEY_PATH") -p "$port" "$user@$server_ip" "rm -f $backup_file ${backup_file}.gz"
         if [ $? -eq 0 ]; then
-            log_message "INFO" "Backup file cleaned up successfully on $server_ip"
+            log_message "INFO" "Backup files cleaned up successfully on $server_ip"
         else
-            log_message "ERROR" "Failed to clean up backup file on $server_ip"
+            log_message "ERROR" "Failed to clean up backup files on $server_ip"
         fi
     fi
 }
@@ -160,45 +156,35 @@ compress_backup() {
     local server_ip=$2
     local port=$3
     local backup_file=$4
-    log_message "INFO" "Compressing backup file on server $server_ip..."
-    if [ "$DRY_RUN" = true ]; then
-        log_message "INFO" "[DRY RUN] Would compress backup file $backup_file on $server_ip"
+    log_message "INFO" "Checking backup files on server $server_ip..."
+    
+    local ssh_cmd="ssh $([[ "$USE_KEY_AUTH" = true ]] && echo "-i $SSH_KEY_PATH") -p $port $user@$server_ip"
+    
+    if $ssh_cmd "[ -f ${backup_file}.gz ]" && $ssh_cmd "[ -f ${backup_file} ]"; then
+        log_message "INFO" "Both compressed and uncompressed backups exist."
+        read -p "Use compressed (c), uncompressed (u), or create new compressed (n) backup? [c/u/n]: " backup_choice
+        case $backup_choice in
+            c|C) echo "${backup_file}.gz" ;;
+            u|U) echo "${backup_file}" ;;
+            n|N)
+                $ssh_cmd "gzip -f $backup_file"
+                echo "${backup_file}.gz"
+                ;;
+            *) 
+                log_message "WARNING" "Invalid choice. Using compressed backup by default."
+                echo "${backup_file}.gz"
+                ;;
+        esac
+    elif $ssh_cmd "[ -f ${backup_file}.gz ]"; then
+        log_message "INFO" "Using existing compressed backup."
+        echo "${backup_file}.gz"
+    elif $ssh_cmd "[ -f ${backup_file} ]"; then
+        log_message "INFO" "Compressing existing uncompressed backup."
+        $ssh_cmd "gzip -f $backup_file"
         echo "${backup_file}.gz"
     else
-        local ssh_cmd
-        if [ "$USE_KEY_AUTH" = true ]; then
-            ssh_cmd="ssh -p $port -i $SSH_KEY_PATH $user@$server_ip"
-        else
-            ssh_cmd="ssh -p $port $user@$server_ip"
-        fi
-
-        if $ssh_cmd "[ -f ${backup_file}.gz ]"; then
-            log_message "INFO" "Compressed backup already exists."
-            read -p "Do you want to delete the existing compressed file and create a new one? (yes/no) [no]: " delete_existing
-            delete_existing=${delete_existing:-no}
-            if [ "$delete_existing" = "yes" ]; then
-                $ssh_cmd "rm -f ${backup_file}.gz && gzip -f $backup_file"
-                if [ $? -eq 0 ]; then
-                    log_message "INFO" "New backup file compressed successfully on $server_ip"
-                    echo "${backup_file}.gz"
-                else
-                    log_message "ERROR" "Failed to compress new backup file on $server_ip"
-                    echo "$backup_file"
-                fi
-            else
-                log_message "INFO" "Using existing compressed file."
-                echo "${backup_file}.gz"
-            fi
-        else
-            $ssh_cmd "gzip -f $backup_file"
-            if [ $? -eq 0 ]; then
-                log_message "INFO" "Backup file compressed successfully on $server_ip"
-                echo "${backup_file}.gz"
-            else
-                log_message "ERROR" "Failed to compress backup file on $server_ip"
-                echo "$backup_file"
-            fi
-        fi
+        log_message "ERROR" "No backup file found on $server_ip."
+        return 1
     fi
 }
 
@@ -375,7 +361,7 @@ main() {
         log_message "ERROR" "Cannot connect to target server. Please check your credentials and try again."
         return 1
     fi
-verbose_log "SSH connection to target server successful."
+    verbose_log "SSH connection to target server successful."
 
     echo  # Add a newline for readability
 
@@ -421,31 +407,25 @@ verbose_log "SSH connection to target server successful."
 
         # Backup domain on source server
         BACKUP_FILE="/tmp/${DOMAIN}_backup.tar"
-        log_message "INFO" "Backing up domain $DOMAIN on source server..."
-        if [ "$DRY_RUN" = true ]; then
-            log_message "INFO" "[DRY RUN] Would backup domain $DOMAIN on source server"
-        else
-            if ! ssh $([[ "$USE_KEY_AUTH" = true ]] && echo "-i $SSH_KEY_PATH") -p "$SOURCE_PORT" "$SOURCE_USER@$SOURCE_SERVER_IP" "plesk bin pleskbackup --domains-name $DOMAIN --output-file $BACKUP_FILE"; then
-                log_message "ERROR" "Failed to create backup for domain $DOMAIN. Skipping."
+        if [ "$COMPRESS_BACKUP" = true ]; then
+            verbose_log "Checking and potentially compressing backup file..."
+            TRANSFER_FILE=$(compress_backup "$SOURCE_USER" "$SOURCE_SERVER_IP" "$SOURCE_PORT" "$BACKUP_FILE")
+            if [ $? -ne 0 ]; then
+                log_message "ERROR" "Failed to prepare backup for domain $DOMAIN. Skipping."
                 continue
             fi
-            verbose_log "Backup created successfully on source server."
-        fi
-
-        # Compress backup if option is set
-        if [ "$COMPRESS_BACKUP" = true ]; then
-            verbose_log "Compressing backup file..."
-            BACKUP_FILE=$(compress_backup "$SOURCE_USER" "$SOURCE_SERVER_IP" "$SOURCE_PORT" "$BACKUP_FILE")
-            verbose_log "Backup file compressed: $BACKUP_FILE"
+            verbose_log "Backup file to transfer: $TRANSFER_FILE"
+        else
+            TRANSFER_FILE="$BACKUP_FILE"
         fi
 
         # Transfer backup to target server
         log_message "INFO" "Transferring backup to target server..."
         if [ "$DRY_RUN" = true ]; then
-            log_message "INFO" "[DRY RUN] Would transfer backup of $DOMAIN to target server"
+            log_message "INFO" "[DRY RUN] Would transfer $TRANSFER_FILE of $DOMAIN to target server"
         else
             verbose_log "Starting file transfer..."
-            if ! scp -P "$SOURCE_PORT" $([[ "$USE_KEY_AUTH" = true ]] && echo "-i $SSH_KEY_PATH") "$SOURCE_USER@$SOURCE_SERVER_IP:$BACKUP_FILE" "$TARGET_USER@$TARGET_SERVER_IP:$BACKUP_FILE"; then
+            if ! scp -P "$SOURCE_PORT" $([[ "$USE_KEY_AUTH" = true ]] && echo "-i $SSH_KEY_PATH") "$SOURCE_USER@$SOURCE_SERVER_IP:$TRANSFER_FILE" "$TARGET_USER@$TARGET_SERVER_IP:$TRANSFER_FILE"; then
                 log_message "ERROR" "Failed to transfer backup for domain $DOMAIN. Skipping."
                 cleanup_backup "$SOURCE_USER" "$SOURCE_SERVER_IP" "$SOURCE_PORT" "$BACKUP_FILE"
                 continue
