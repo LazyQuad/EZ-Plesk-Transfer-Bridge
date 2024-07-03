@@ -6,7 +6,7 @@ if [[ $- == *i* ]]; then
     bind '"\e[B": history-search-forward'
 fi
 
-VERSION="1.2.3"
+VERSION="1.2.4"
 SCRIPT_NAME="EZ-Plesk-Transfer-Bridge-Pro"
 GITHUB_PAGE="https://github.com/LazyQuad/EZ-Plesk-Transfer-Bridge"
 
@@ -108,18 +108,11 @@ prompt_password() {
 check_ssh_connection() {
     local user_host=$1
     local port=$2
-    local password=$3
     local max_retries=3
     local retry_count=0
 
     while [ $retry_count -lt $max_retries ]; do
-        if [ "$USE_KEY_AUTH" = true ]; then
-            ssh -q -o BatchMode=yes -o ConnectTimeout=5 -p "$port" -i "$SSH_KEY_PATH" "$user_host" "echo 2>&1" >/dev/null
-        else
-            sshpass -p "$password" ssh -q -o BatchMode=yes -o ConnectTimeout=5 -p "$port" "$user_host" "echo 2>&1" >/dev/null
-        fi
-
-        if [ $? -eq 0 ]; then
+        if ssh -q -o BatchMode=yes -o ConnectTimeout=5 -p "$port" $([[ "$USE_KEY_AUTH" = true ]] && echo "-i $SSH_KEY_PATH") "$user_host" "echo 2>&1" >/dev/null; then
             return 0
         fi
         retry_count=$((retry_count + 1))
@@ -152,30 +145,20 @@ check_plesk_version() {
     local user=$1
     local server_ip=$2
     local port=$3
-    local password=$4
     log_message "INFO" "Checking Plesk version on $server_ip..."
-    if [ "$USE_KEY_AUTH" = true ]; then
-        ssh -p "$port" -i "$SSH_KEY_PATH" "$user@$server_ip" "plesk version" 2>/dev/null || echo "Plesk not found"
-    else
-        sshpass -p "$password" ssh -p "$port" "$user@$server_ip" "plesk version" 2>/dev/null || echo "Plesk not found"
-    fi
+    ssh -p "$port" $([[ "$USE_KEY_AUTH" = true ]] && echo "-i $SSH_KEY_PATH") "$user@$server_ip" "plesk version" 2>/dev/null || echo "Plesk not found"
 }
 
 cleanup_backup() {
     local user=$1
     local server_ip=$2
     local port=$3
-    local password=$4
-    local backup_file=$5
+    local backup_file=$4
     log_message "INFO" "Cleaning up backup files on server $server_ip..."
     if [ "$DRY_RUN" = true ]; then
         log_message "INFO" "[DRY RUN] Would remove backup files $backup_file and ${backup_file}.gz on $server_ip"
     else
-        if [ "$USE_KEY_AUTH" = true ]; then
-            ssh -i "$SSH_KEY_PATH" -p "$port" "$user@$server_ip" "rm -f $backup_file ${backup_file}.gz"
-        else
-            sshpass -p "$password" ssh -p "$port" "$user@$server_ip" "rm -f $backup_file ${backup_file}.gz"
-        fi
+        ssh -p "$port" $([[ "$USE_KEY_AUTH" = true ]] && echo "-i $SSH_KEY_PATH") "$user@$server_ip" "rm -f $backup_file ${backup_file}.gz"
         if [ $? -eq 0 ]; then
             log_message "INFO" "Backup files cleaned up successfully on $server_ip"
         else
@@ -188,16 +171,10 @@ compress_backup() {
     local user=$1
     local server_ip=$2
     local port=$3
-    local password=$4
-    local backup_file=$5
+    local backup_file=$4
     log_message "INFO" "Checking backup files on server $server_ip..."
     
-    local ssh_cmd
-    if [ "$USE_KEY_AUTH" = true ]; then
-        ssh_cmd="ssh -i $SSH_KEY_PATH -p $port $user@$server_ip"
-    else
-        ssh_cmd="sshpass -p $password ssh -p $port $user@$server_ip"
-    fi
+    local ssh_cmd="ssh -p $port $([[ "$USE_KEY_AUTH" = true ]] && echo "-i $SSH_KEY_PATH") $user@$server_ip"
     
     if $ssh_cmd "[ -f ${backup_file}.gz ]" && $ssh_cmd "[ -f ${backup_file} ]"; then
         log_message "INFO" "Both compressed and uncompressed backups exist."
@@ -237,38 +214,24 @@ migrate_ssl() {
     local source_user=$1
     local source_ip=$2
     local source_port=$3
-    local source_password=$4
-    local target_user=$5
-    local target_ip=$6
-    local target_port=$7
-    local target_password=$8
-    local domain=$9
+    local target_user=$4
+    local target_ip=$5
+    local target_port=$6
+    local domain=$7
 
     log_message "INFO" "Migrating SSL certificate for domain $domain..."
     if [ "$DRY_RUN" = true ]; then
         log_message "INFO" "[DRY RUN] Would migrate SSL certificate for $domain"
     else
-        local ssh_source_cmd
-        local ssh_target_cmd
-        if [ "$USE_KEY_AUTH" = true ]; then
-            ssh_source_cmd="ssh -p $source_port -i $SSH_KEY_PATH $source_user@$source_ip"
-            ssh_target_cmd="ssh -p $target_port -i $SSH_KEY_PATH $target_user@$target_ip"
-        else
-            ssh_source_cmd="sshpass -p $source_password ssh -p $source_port $source_user@$source_ip"
-            ssh_target_cmd="sshpass -p $target_password ssh -p $target_port $target_user@$target_ip"
-        fi
+        local ssh_source_cmd="ssh -p $source_port $([[ "$USE_KEY_AUTH" = true ]] && echo "-i $SSH_KEY_PATH") $source_user@$source_ip"
+        local ssh_target_cmd="ssh -p $target_port $([[ "$USE_KEY_AUTH" = true ]] && echo "-i $SSH_KEY_PATH") $target_user@$target_ip"
 
         # Export SSL from source
         $ssh_source_cmd "plesk bin certificate --export-file /tmp/${domain}_cert.tar $domain"
         
         # Transfer to target
-        if [ "$USE_KEY_AUTH" = true ]; then
-            scp -P "$source_port" -i "$SSH_KEY_PATH" "$source_user@$source_ip:/tmp/${domain}_cert.tar" "/tmp/${domain}_cert.tar"
-            scp -P "$target_port" -i "$SSH_KEY_PATH" "/tmp/${domain}_cert.tar" "$target_user@$target_ip:/tmp/${domain}_cert.tar"
-        else
-            sshpass -p "$source_password" scp -P "$source_port" "$source_user@$source_ip:/tmp/${domain}_cert.tar" "/tmp/${domain}_cert.tar"
-            sshpass -p "$target_password" scp -P "$target_port" "/tmp/${domain}_cert.tar" "$target_user@$target_ip:/tmp/${domain}_cert.tar"
-        fi
+        scp -P "$source_port" $([[ "$USE_KEY_AUTH" = true ]] && echo "-i $SSH_KEY_PATH") "$source_user@$source_ip:/tmp/${domain}_cert.tar" "/tmp/${domain}_cert.tar"
+        scp -P "$target_port" $([[ "$USE_KEY_AUTH" = true ]] && echo "-i $SSH_KEY_PATH") "/tmp/${domain}_cert.tar" "$target_user@$target_ip:/tmp/${domain}_cert.tar"
 
         # Import on target
         $ssh_target_cmd "plesk bin certificate --import-file /tmp/${domain}_cert.tar"
@@ -383,7 +346,7 @@ main() {
     IFS=':' read -r SOURCE_SERVER_IP SOURCE_SERVER_DOMAIN <<< "$SOURCE_SERVER_INFO"
 
     [ -z "$SOURCE_PORT" ] && SOURCE_PORT=$(prompt_input "Enter the SSH port for the source server" "22")
-[ -z "$SOURCE_USER" ] && SOURCE_USER=$(prompt_input "Enter the username for the source server" "root")
+    [ -z "$SOURCE_USER" ] && SOURCE_USER=$(prompt_input "Enter the username for the source server" "root")
     [ -z "$SOURCE_PASSWORD" ] && [ "$USE_KEY_AUTH" = false ] && SOURCE_PASSWORD=$(prompt_password "Enter the password for the source server")
 
     [ -z "$TARGET_SERVER" ] && TARGET_SERVER=$(prompt_input "Enter the target server IP or domain" "")
@@ -404,7 +367,7 @@ main() {
 
     if [ -n "$TARGET_SERVER_DOMAIN" ]; then
         log_message "INFO" "Target Server: $TARGET_SERVER_DOMAIN (IP: $TARGET_SERVER_IP)"
-    else
+else
         log_message "INFO" "Target Server IP: $TARGET_SERVER_IP"
     fi
 
@@ -412,14 +375,14 @@ main() {
 
     # Test SSH connections
     verbose_log "Testing SSH connection to source server..."
-    if ! check_ssh_connection "$SOURCE_USER@$SOURCE_SERVER_IP" "$SOURCE_PORT" "$SOURCE_PASSWORD"; then
+    if ! check_ssh_connection "$SOURCE_USER@$SOURCE_SERVER_IP" "$SOURCE_PORT"; then
         log_message "ERROR" "Cannot connect to source server. Please check your credentials and try again."
         return 1
     fi
     verbose_log "SSH connection to source server successful."
 
     verbose_log "Testing SSH connection to target server..."
-    if ! check_ssh_connection "$TARGET_USER@$TARGET_SERVER_IP" "$TARGET_PORT" "$TARGET_PASSWORD"; then
+    if ! check_ssh_connection "$TARGET_USER@$TARGET_SERVER_IP" "$TARGET_PORT"; then
         log_message "ERROR" "Cannot connect to target server. Please check your credentials and try again."
         return 1
     fi
@@ -428,8 +391,8 @@ main() {
     echo  # Add a newline for readability
 
     # Check Plesk versions
-    SOURCE_PLESK_VERSION=$(check_plesk_version "$SOURCE_USER" "$SOURCE_SERVER_IP" "$SOURCE_PORT" "$SOURCE_PASSWORD")
-    TARGET_PLESK_VERSION=$(check_plesk_version "$TARGET_USER" "$TARGET_SERVER_IP" "$TARGET_PORT" "$TARGET_PASSWORD")
+    SOURCE_PLESK_VERSION=$(check_plesk_version "$SOURCE_USER" "$SOURCE_SERVER_IP" "$SOURCE_PORT")
+    TARGET_PLESK_VERSION=$(check_plesk_version "$TARGET_USER" "$TARGET_SERVER_IP" "$TARGET_PORT")
 
     log_message "INFO" "Source Plesk version: $SOURCE_PLESK_VERSION"
     log_message "INFO" "Target Plesk version: $TARGET_PLESK_VERSION"
@@ -453,7 +416,7 @@ main() {
 
         # Check if domain exists on source
         verbose_log "Checking if domain exists on source server..."
-        if ! ssh $([[ "$USE_KEY_AUTH" = true ]] && echo "-i $SSH_KEY_PATH") -p "$SOURCE_PORT" "$SOURCE_USER@$SOURCE_SERVER_IP" "plesk bin domain --info $DOMAIN" &>/dev/null; then
+        if ! ssh -p "$SOURCE_PORT" $([[ "$USE_KEY_AUTH" = true ]] && echo "-i $SSH_KEY_PATH") "$SOURCE_USER@$SOURCE_SERVER_IP" "plesk bin domain --info $DOMAIN" &>/dev/null; then
             log_message "WARNING" "Domain $DOMAIN does not exist on source server. Skipping."
             continue
         fi
@@ -461,7 +424,7 @@ main() {
 
         # Check if domain exists on target
         verbose_log "Checking if domain exists on target server..."
-        if ssh $([[ "$USE_KEY_AUTH" = true ]] && echo "-i $SSH_KEY_PATH") -p "$TARGET_PORT" "$TARGET_USER@$TARGET_SERVER_IP" "plesk bin domain --info $DOMAIN" &>/dev/null; then
+        if ssh -p "$TARGET_PORT" $([[ "$USE_KEY_AUTH" = true ]] && echo "-i $SSH_KEY_PATH") "$TARGET_USER@$TARGET_SERVER_IP" "plesk bin domain --info $DOMAIN" &>/dev/null; then
             log_message "WARNING" "Domain $DOMAIN already exists on target server. Skipping."
             continue
         fi
@@ -470,29 +433,28 @@ main() {
         # Backup domain on source server
         BACKUP_FILE="/tmp/${DOMAIN}_backup.tar"
         log_message "INFO" "Creating backup for domain $DOMAIN on source server..."
-        if ! ssh $([[ "$USE_KEY_AUTH" = true ]] && echo "-i $SSH_KEY_PATH") -p "$SOURCE_PORT" "$SOURCE_USER@$SOURCE_SERVER_IP" "plesk bin pleskbackup --domains-name $DOMAIN --output-file $BACKUP_FILE"; then
+        if ! ssh -p "$SOURCE_PORT" $([[ "$USE_KEY_AUTH" = true ]] && echo "-i $SSH_KEY_PATH") "$SOURCE_USER@$SOURCE_SERVER_IP" "plesk bin pleskbackup --domains-name $DOMAIN --output-file $BACKUP_FILE"; then
             log_message "ERROR" "Failed to create backup for domain $DOMAIN on source server."
             continue
         fi
         log_message "INFO" "Backup created successfully: $BACKUP_FILE"
 
+        # Verify backup file exists
+        if ! ssh -p "$SOURCE_PORT" $([[ "$USE_KEY_AUTH" = true ]] && echo "-i $SSH_KEY_PATH") "$SOURCE_USER@$SOURCE_SERVER_IP" "[ -f $BACKUP_FILE ]"; then
+            log_message "ERROR" "Backup file $BACKUP_FILE not found on source server after creation. Skipping domain $DOMAIN."
+            continue
+        fi
+
         if [ "$COMPRESS_BACKUP" = true ]; then
-            verbose_log "Checking and potentially compressing backup file..."
-            TRANSFER_FILE=$(compress_backup "$SOURCE_USER" "$SOURCE_SERVER_IP" "$SOURCE_PORT" "$SOURCE_PASSWORD" "$BACKUP_FILE")
+            verbose_log "Compressing backup file..."
+            TRANSFER_FILE=$(compress_backup "$SOURCE_USER" "$SOURCE_SERVER_IP" "$SOURCE_PORT" "$BACKUP_FILE")
             if [ $? -ne 0 ]; then
-                log_message "ERROR" "Failed to prepare backup for domain $DOMAIN. Skipping."
-                log_message "ERROR" "Please check if the backup file exists and you have proper permissions."
+                log_message "ERROR" "Failed to compress backup for domain $DOMAIN. Skipping."
                 continue
             fi
-            verbose_log "Backup file to transfer: $TRANSFER_FILE"
+            verbose_log "Backup file compressed: $TRANSFER_FILE"
         else
             TRANSFER_FILE="$BACKUP_FILE"
-            # Check if the uncompressed backup file exists
-            if ! ssh $([[ "$USE_KEY_AUTH" = true ]] && echo "-i $SSH_KEY_PATH") -p "$SOURCE_PORT" "$SOURCE_USER@$SOURCE_SERVER_IP" "[ -f $TRANSFER_FILE ]"; then
-                log_message "ERROR" "Backup file $TRANSFER_FILE not found on source server. Skipping domain $DOMAIN."
-                log_message "ERROR" "Please ensure the backup was created successfully."
-                continue
-            fi
         fi
 
         # Transfer backup to target server
@@ -501,14 +463,9 @@ main() {
             log_message "INFO" "[DRY RUN] Would transfer $TRANSFER_FILE of $DOMAIN to target server"
         else
             verbose_log "Starting file transfer..."
-            if [ "$USE_KEY_AUTH" = true ]; then
-                scp -P "$SOURCE_PORT" -i "$SSH_KEY_PATH" "$SOURCE_USER@$SOURCE_SERVER_IP:$TRANSFER_FILE" "$TARGET_USER@$TARGET_SERVER_IP:$TRANSFER_FILE"
-            else
-                sshpass -p "$SOURCE_PASSWORD" scp -P "$SOURCE_PORT" "$SOURCE_USER@$SOURCE_SERVER_IP:$TRANSFER_FILE" "$TARGET_USER@$TARGET_SERVER_IP:$TRANSFER_FILE"
-            fi
-            if [ $? -ne 0 ]; then
+            if ! scp -P "$SOURCE_PORT" $([[ "$USE_KEY_AUTH" = true ]] && echo "-i $SSH_KEY_PATH") "$SOURCE_USER@$SOURCE_SERVER_IP:$TRANSFER_FILE" "$TARGET_USER@$TARGET_SERVER_IP:$TRANSFER_FILE"; then
                 log_message "ERROR" "Failed to transfer backup for domain $DOMAIN. Skipping."
-                cleanup_backup "$SOURCE_USER" "$SOURCE_SERVER_IP" "$SOURCE_PORT" "$SOURCE_PASSWORD" "$BACKUP_FILE"
+                cleanup_backup "$SOURCE_USER" "$SOURCE_SERVER_IP" "$SOURCE_PORT" "$BACKUP_FILE"
                 continue
             fi
             verbose_log "Backup file transferred successfully."
@@ -525,7 +482,7 @@ main() {
             log_message "INFO" "[DRY RUN] Would restore backup of $DOMAIN on target server"
         else
             verbose_log "Executing restore command..."
-            if ! ssh $([[ "$USE_KEY_AUTH" = true ]] && echo "-i $SSH_KEY_PATH") -p "$TARGET_PORT" "$TARGET_USER@$TARGET_SERVER_IP" "$RESTORE_CMD"; then
+            if ! ssh -p "$TARGET_PORT" $([[ "$USE_KEY_AUTH" = true ]] && echo "-i $SSH_KEY_PATH") "$TARGET_USER@$TARGET_SERVER_IP" "$RESTORE_CMD"; then
                 log_message "ERROR" "Failed to restore backup for domain $DOMAIN on target server."
             else
                 log_message "INFO" "Successfully migrated domain $DOMAIN"
@@ -536,16 +493,16 @@ main() {
         # Migrate SSL if option is set
         if [ "$MIGRATE_SSL" = true ]; then
             verbose_log "Starting SSL migration for $DOMAIN..."
-            migrate_ssl "$SOURCE_USER" "$SOURCE_SERVER_IP" "$SOURCE_PORT" "$SOURCE_PASSWORD" \
-                        "$TARGET_USER" "$TARGET_SERVER_IP" "$TARGET_PORT" "$TARGET_PASSWORD" \
+            migrate_ssl "$SOURCE_USER" "$SOURCE_SERVER_IP" "$SOURCE_PORT" \
+                        "$TARGET_USER" "$TARGET_SERVER_IP" "$TARGET_PORT" \
                         "$DOMAIN"
             verbose_log "SSL migration completed for $DOMAIN."
         fi
 
         # Clean up
         verbose_log "Cleaning up temporary files..."
-        cleanup_backup "$SOURCE_USER" "$SOURCE_SERVER_IP" "$SOURCE_PORT" "$SOURCE_PASSWORD" "$BACKUP_FILE"
-        cleanup_backup "$TARGET_USER" "$TARGET_SERVER_IP" "$TARGET_PORT" "$TARGET_PASSWORD" "$BACKUP_FILE"
+        cleanup_backup "$SOURCE_USER" "$SOURCE_SERVER_IP" "$SOURCE_PORT" "$BACKUP_FILE"
+        cleanup_backup "$TARGET_USER" "$TARGET_SERVER_IP" "$TARGET_PORT" "$BACKUP_FILE"
         verbose_log "Cleanup completed."
 
         echo  # Add a newline for readability
