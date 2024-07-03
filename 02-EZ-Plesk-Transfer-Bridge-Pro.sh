@@ -196,17 +196,18 @@ compress_backup() {
         esac
     elif $ssh_cmd "[ -f ${backup_file}.gz ]"; then
         log_message "INFO" "Using existing compressed backup."
-        echo "${backup_file}.gz"
+        echo "SUCCESS:${backup_file}.gz"
     elif $ssh_cmd "[ -f ${backup_file} ]"; then
         log_message "INFO" "Compressing existing uncompressed backup."
         if ! $ssh_cmd "gzip -f $backup_file"; then
             log_message "ERROR" "Failed to compress existing backup."
-            return 1
+            echo "FAIL:${backup_file}"
+        else
+            echo "SUCCESS:${backup_file}.gz"
         fi
-        echo "${backup_file}.gz"
     else
         log_message "ERROR" "No backup file found on $server_ip. Please ensure the backup was created successfully."
-        return 1
+        echo "FAIL:${backup_file}"
     fi
 }
 
@@ -447,10 +448,10 @@ else
 
         if [ "$COMPRESS_BACKUP" = true ]; then
             verbose_log "Compressing backup file..."
-            TRANSFER_FILE=$(compress_backup "$SOURCE_USER" "$SOURCE_SERVER_IP" "$SOURCE_PORT" "$BACKUP_FILE")
-            compression_status=$?
+            compress_result=$(compress_backup "$SOURCE_USER" "$SOURCE_SERVER_IP" "$SOURCE_PORT" "$BACKUP_FILE")
+            IFS=':' read -r compression_status TRANSFER_FILE <<< "$compress_result"
             verbose_log "Compression result: $TRANSFER_FILE (Status: $compression_status)"
-            if [ $compression_status -ne 0 ]; then
+            if [ "$compression_status" != "SUCCESS" ]; then
                 log_message "WARNING" "Compression failed. Using uncompressed file for transfer."
                 TRANSFER_FILE="$BACKUP_FILE"
             fi
@@ -459,13 +460,17 @@ else
         fi
 
         # Verify the file exists before transfer
-        ssh -p "$SOURCE_PORT" $([[ "$USE_KEY_AUTH" = true ]] && echo "-i $SSH_KEY_PATH") "$SOURCE_USER@$SOURCE_SERVER_IP" "ls -l $TRANSFER_FILE" || {
+        ssh_command="ssh -p $SOURCE_PORT $([[ "$USE_KEY_AUTH" = true ]] && echo "-i $SSH_KEY_PATH") $SOURCE_USER@$SOURCE_SERVER_IP"
+        if ! $ssh_command "[ -f $TRANSFER_FILE ]"; then
             log_message "ERROR" "Transfer file $TRANSFER_FILE does not exist on source server. Skipping domain $DOMAIN."
             continue
-        }
+        fi
 
         # Transfer backup to target server
         log_message "INFO" "Transferring backup to target server..."
+        scp_command="scp -P $SOURCE_PORT $([[ "$USE_KEY_AUTH" = true ]] && echo "-i $SSH_KEY_PATH") $SOURCE_USER@$SOURCE_SERVER_IP:$TRANSFER_FILE $TARGET_USER@$TARGET_SERVER_IP:$TRANSFER_FILE"
+        log_message "DEBUG" "SCP command: $scp_command"
+
         if [ "$DRY_RUN" = true ]; then
             log_message "INFO" "[DRY RUN] Would transfer $TRANSFER_FILE of $DOMAIN to target server"
         else
