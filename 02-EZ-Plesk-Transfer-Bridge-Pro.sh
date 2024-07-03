@@ -1,5 +1,16 @@
 #!/bin/bash
 clear
+# Enable command-line editing
+if [[ $- == *i* ]]; then
+    bind '"\e[A": history-search-backward'
+    bind '"\e[B": history-search-forward'
+fi
+
+# Set up history
+HISTFILE="/tmp/.ez_plesk_transfer_history"
+HISTFILESIZE=1000
+HISTSIZE=1000
+set -o history
 
 VERSION="1.2.0"
 SCRIPT_NAME="EZ-Plesk-Transfer-Bridge-Pro"
@@ -22,6 +33,8 @@ COMPONENTS_TO_MIGRATE="all"
 VERBOSE=false
 USE_KEY_AUTH=false
 SSH_KEY_PATH=""
+CLEANUP_HISTORY=false
+
 
 log_message() {
     local level="$1"
@@ -70,12 +83,13 @@ verbose_log() {
 }
 
 prompt_input() {
-    read -p "$1 [$2]: " input
+    read -e -p "$1 [$2]: " input
     echo "${input:-$2}"
 }
 
 prompt_password() {
     read -s -p "$1: " password
+    echo
     echo "$password"
 }
 
@@ -278,6 +292,11 @@ parse_args() {
                 verbose_log "Using SSH key authentication with key: $SSH_KEY_PATH"
                 shift 2
                 ;;
+            --cleanup-history)
+                CLEANUP_HISTORY=true
+                verbose_log "History file cleanup enabled."
+                shift
+                ;;
             *)
                 log_message "WARNING" "Unknown option: $1"
                 shift
@@ -470,6 +489,13 @@ main() {
         echo  # Add a newline for readability
     done
 
+    if [ "$CLEANUP_HISTORY" = true ]; then
+        rm -f "$HISTFILE"
+        log_message "INFO" "History file cleaned up."
+    else
+        log_message "INFO" "History file retained at $HISTFILE"
+    fi    
+    
     log_message "INFO" "EZ-Plesk-Transfer-Bridge-Pro process completed. Check the log for details."
     return 0
 }
