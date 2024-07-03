@@ -6,7 +6,7 @@ if [[ $- == *i* ]]; then
     bind '"\e[B": history-search-forward'
 fi
 
-VERSION="1.2.0"
+VERSION="1.2.2"
 SCRIPT_NAME="EZ-Plesk-Transfer-Bridge-Pro"
 GITHUB_PAGE="https://github.com/LazyQuad/EZ-Plesk-Transfer-Bridge"
 
