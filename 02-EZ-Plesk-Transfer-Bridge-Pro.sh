@@ -6,7 +6,7 @@ if [[ $- == *i* ]]; then
     bind '"\e[B": history-search-forward'
 fi
 
-VERSION="1.2.4"
+VERSION="1.2.6"
 SCRIPT_NAME="EZ-Plesk-Transfer-Bridge-Pro"
 GITHUB_PAGE="https://github.com/LazyQuad/EZ-Plesk-Transfer-Bridge"
 
@@ -21,9 +21,7 @@ DEFAULT_CONFIG_FILE="$SCRIPT_DIR/config/Pro-Config.conf"
 CONFIG_FILE="$DEFAULT_CONFIG_FILE"
 LOG_FILE="$SCRIPT_DIR/logs/transfer_bridge_$(date +'%Y%m%d_%H%M%S').log"
 DRY_RUN=false
-COMPRESS_BACKUP=false
 MIGRATE_SSL=false
-COMPONENTS_TO_MIGRATE="all"
 VERBOSE=false
 USE_KEY_AUTH=false
 SSH_KEY_PATH=""
@@ -154,60 +152,16 @@ cleanup_backup() {
     local server_ip=$2
     local port=$3
     local backup_file=$4
-    log_message "INFO" "Cleaning up backup files on server $server_ip..."
+    log_message "INFO" "Cleaning up backup file on server $server_ip..."
     if [ "$DRY_RUN" = true ]; then
-        log_message "INFO" "[DRY RUN] Would remove backup files $backup_file and ${backup_file}.gz on $server_ip"
+        log_message "INFO" "[DRY RUN] Would remove backup file $backup_file on $server_ip"
     else
-        ssh -p "$port" $([[ "$USE_KEY_AUTH" = true ]] && echo "-i $SSH_KEY_PATH") "$user@$server_ip" "rm -f $backup_file ${backup_file}.gz"
+        ssh -p "$port" $([[ "$USE_KEY_AUTH" = true ]] && echo "-i $SSH_KEY_PATH") "$user@$server_ip" "rm -f $backup_file"
         if [ $? -eq 0 ]; then
-            log_message "INFO" "Backup files cleaned up successfully on $server_ip"
+            log_message "INFO" "Backup file cleaned up successfully on $server_ip"
         else
-            log_message "ERROR" "Failed to clean up backup files on $server_ip"
+            log_message "ERROR" "Failed to clean up backup file on $server_ip"
         fi
-    fi
-}
-
-compress_backup() {
-    local user=$1
-    local server_ip=$2
-    local port=$3
-    local backup_file=$4
-    log_message "INFO" "Checking backup files on server $server_ip..."
-    
-    local ssh_cmd="ssh -p $port $([[ "$USE_KEY_AUTH" = true ]] && echo "-i $SSH_KEY_PATH") $user@$server_ip"
-    
-    if $ssh_cmd "[ -f ${backup_file}.gz ]" && $ssh_cmd "[ -f ${backup_file} ]"; then
-        log_message "INFO" "Both compressed and uncompressed backups exist."
-        read -p "Use compressed (c), uncompressed (u), or create new compressed (n) backup? [c/u/n]: " backup_choice
-        case $backup_choice in
-            c|C) echo "${backup_file}.gz" ;;
-            u|U) echo "${backup_file}" ;;
-            n|N)
-                if ! $ssh_cmd "gzip -f $backup_file"; then
-                    log_message "ERROR" "Failed to create new compressed backup."
-                    return 1
-                fi
-                echo "${backup_file}.gz"
-                ;;
-            *) 
-                log_message "WARNING" "Invalid choice. Using compressed backup by default."
-                echo "${backup_file}.gz"
-                ;;
-        esac
-    elif $ssh_cmd "[ -f ${backup_file}.gz ]"; then
-        log_message "INFO" "Using existing compressed backup."
-        echo "SUCCESS:${backup_file}.gz"
-    elif $ssh_cmd "[ -f ${backup_file} ]"; then
-        log_message "INFO" "Compressing existing uncompressed backup."
-        if ! $ssh_cmd "gzip -f $backup_file"; then
-            log_message "ERROR" "Failed to compress existing backup."
-            echo "FAIL:${backup_file}"
-        else
-            echo "SUCCESS:${backup_file}.gz"
-        fi
-    else
-        log_message "ERROR" "No backup file found on $server_ip. Please ensure the backup was created successfully."
-        echo "FAIL:${backup_file}"
     fi
 }
 
@@ -271,20 +225,10 @@ parse_args() {
                 verbose_log "Using custom configuration file: $CONFIG_FILE"
                 shift 2
                 ;;
-            --compress)
-                COMPRESS_BACKUP=true
-                verbose_log "Backup compression enabled."
-                shift
-                ;;
             --migrate-ssl)
                 MIGRATE_SSL=true
                 verbose_log "SSL migration enabled."
                 shift
-                ;;
-            --components)
-                COMPONENTS_TO_MIGRATE="$2"
-                verbose_log "Components to migrate: $COMPONENTS_TO_MIGRATE"
-                shift 2
                 ;;
             --verbose)
                 VERBOSE=true
@@ -368,7 +312,7 @@ main() {
 
     if [ -n "$TARGET_SERVER_DOMAIN" ]; then
         log_message "INFO" "Target Server: $TARGET_SERVER_DOMAIN (IP: $TARGET_SERVER_IP)"
-else
+    else
         log_message "INFO" "Target Server IP: $TARGET_SERVER_IP"
     fi
 
@@ -417,7 +361,7 @@ else
 
         # Check if domain exists on source
         verbose_log "Checking if domain exists on source server..."
-        if ! ssh -p "$SOURCE_PORT" $([[ "$USE_KEY_AUTH" = true ]] && echo "-i $SSH_KEY_PATH") "$SOURCE_USER@$SOURCE_SERVER_IP" "plesk bin domain --info $DOMAIN" &>/dev/null; then
+if ! ssh -p "$SOURCE_PORT" $([[ "$USE_KEY_AUTH" = true ]] && echo "-i $SSH_KEY_PATH") "$SOURCE_USER@$SOURCE_SERVER_IP" "plesk bin domain --info $DOMAIN" &>/dev/null; then
             log_message "WARNING" "Domain $DOMAIN does not exist on source server. Skipping."
             continue
         fi
@@ -446,33 +390,13 @@ else
             continue
         fi
 
-        if [ "$COMPRESS_BACKUP" = true ]; then
-            verbose_log "Compressing backup file..."
-            compress_result=$(compress_backup "$SOURCE_USER" "$SOURCE_SERVER_IP" "$SOURCE_PORT" "$BACKUP_FILE")
-            IFS=':' read -r compression_status TRANSFER_FILE <<< "$compress_result"
-            verbose_log "Compression result: $TRANSFER_FILE (Status: $compression_status)"
-            if [ "$compression_status" != "SUCCESS" ]; then
-                log_message "WARNING" "Compression failed. Using uncompressed file for transfer."
-                TRANSFER_FILE="$BACKUP_FILE"
-            fi
-        else
-            TRANSFER_FILE="$BACKUP_FILE"
-        fi
-
-        # Verify the file exists before transfer
-        ssh_command="ssh -p $SOURCE_PORT $([[ "$USE_KEY_AUTH" = true ]] && echo "-i $SSH_KEY_PATH") $SOURCE_USER@$SOURCE_SERVER_IP"
-        if ! $ssh_command "[ -f $TRANSFER_FILE ]"; then
-            log_message "ERROR" "Transfer file $TRANSFER_FILE does not exist on source server. Skipping domain $DOMAIN."
-            continue
-        fi
-
         # Transfer backup to target server
         log_message "INFO" "Transferring backup to target server..."
-        scp_command="scp -P $SOURCE_PORT $([[ "$USE_KEY_AUTH" = true ]] && echo "-i $SSH_KEY_PATH") $SOURCE_USER@$SOURCE_SERVER_IP:$TRANSFER_FILE $TARGET_USER@$TARGET_SERVER_IP:$TRANSFER_FILE"
+        scp_command="scp -P $SOURCE_PORT $([[ "$USE_KEY_AUTH" = true ]] && echo "-i $SSH_KEY_PATH") $SOURCE_USER@$SOURCE_SERVER_IP:$BACKUP_FILE $TARGET_USER@$TARGET_SERVER_IP:$BACKUP_FILE"
         log_message "DEBUG" "SCP command: $scp_command"
 
         if [ "$DRY_RUN" = true ]; then
-            log_message "INFO" "[DRY RUN] Would transfer $TRANSFER_FILE of $DOMAIN to target server"
+            log_message "INFO" "[DRY RUN] Would transfer $BACKUP_FILE of $DOMAIN to target server"
         else
             verbose_log "Starting file transfer..."
             if ! eval "$scp_command"; then
@@ -485,7 +409,7 @@ else
 
         # Restore backup on target server
         log_message "INFO" "Restoring backup on target server..."
-        RESTORE_CMD="plesk bin pleskrestore --restore $TRANSFER_FILE -level domains -domain-name $DOMAIN"
+        RESTORE_CMD="plesk bin pleskrestore --restore $BACKUP_FILE -level domains -domain-name $DOMAIN"
         if [ "$IGNORE_SIGN" = "yes" ]; then
             RESTORE_CMD="$RESTORE_CMD -ignore-sign"
             verbose_log "Using -ignore-sign option for restoration."
