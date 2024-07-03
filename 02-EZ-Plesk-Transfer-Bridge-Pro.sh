@@ -6,12 +6,6 @@ if [[ $- == *i* ]]; then
     bind '"\e[B": history-search-forward'
 fi
 
-# Set up history
-HISTFILE="/tmp/.ez_plesk_transfer_history"
-HISTFILESIZE=1000
-HISTSIZE=1000
-set -o history
-
 VERSION="1.2.0"
 SCRIPT_NAME="EZ-Plesk-Transfer-Bridge-Pro"
 GITHUB_PAGE="https://github.com/LazyQuad/EZ-Plesk-Transfer-Bridge"
@@ -35,6 +29,22 @@ USE_KEY_AUTH=false
 SSH_KEY_PATH=""
 CLEANUP_HISTORY=false
 
+# Save the current HISTFILE
+OLD_HISTFILE="$HISTFILE"
+
+HISTFILESIZE=1000
+HISTSIZE=1000
+
+
+# Set up a temporary history file for the script
+SCRIPT_HISTFILE="$SCRIPT_DIR/.ez_plesk_transfer_history"
+export HISTFILE="$SCRIPT_HISTFILE"
+
+# Ignore script commands in history
+export HISTIGNORE="*"
+
+# Set history not to save to file immediately
+set +o history
 
 log_message() {
     local level="$1"
@@ -83,7 +93,10 @@ verbose_log() {
 }
 
 prompt_input() {
+    local HISTIGNORE_OLD="$HISTIGNORE"
+    HISTIGNORE=""
     read -e -p "$1 [$2]: " input
+    HISTIGNORE="$HISTIGNORE_OLD"
     echo "${input:-$2}"
 }
 
@@ -489,13 +502,20 @@ main() {
         echo  # Add a newline for readability
     done
 
+    # Restore the original HISTFILE
+    export HISTFILE="$OLD_HISTFILE"
+
+    # Re-enable history
+    set -o history
+
+    # Clean up the temporary history file if option is set
     if [ "$CLEANUP_HISTORY" = true ]; then
-        rm -f "$HISTFILE"
-        log_message "INFO" "History file cleaned up."
+        rm -f "$SCRIPT_HISTFILE"
+        log_message "INFO" "Temporary history file cleaned up."
     else
-        log_message "INFO" "History file retained at $HISTFILE"
-    fi    
-    
+        log_message "INFO" "Temporary history file retained at $SCRIPT_HISTFILE"
+    fi
+
     log_message "INFO" "EZ-Plesk-Transfer-Bridge-Pro process completed. Check the log for details."
     return 0
 }
