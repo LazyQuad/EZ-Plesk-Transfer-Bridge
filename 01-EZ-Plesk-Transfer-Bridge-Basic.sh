@@ -1,7 +1,7 @@
 #!/bin/bash
 clear
 
-VERSION="1.0.0"
+VERSION="1.1.0"
 SCRIPT_NAME="EZ-Plesk-Transfer-Bridge-Basic"
 GITHUB_PAGE="https://github.com/LazyQuad/EZ-Plesk-Transfer-Bridge"
 
@@ -25,6 +25,7 @@ prompt_input() {
 
 prompt_password() {
     read -s -p "$1: " password
+    echo
     echo "$password"
 }
 
@@ -108,7 +109,6 @@ main() {
     SOURCE_PORT=$(prompt_input "Enter the SSH port for the source server" "22")
     SOURCE_USER=$(prompt_input "Enter the username for the source server" "root")
     SOURCE_PASSWORD=$(prompt_password "Enter the password for the source server")
-    echo  # Add a newline after password input
 
     while true; do
         TARGET_SERVER=$(prompt_input "Enter the target server IP or domain" "")
@@ -122,7 +122,6 @@ main() {
     TARGET_PORT=$(prompt_input "Enter the SSH port for the target server" "22")
     TARGET_USER=$(prompt_input "Enter the username for the target server" "root")
     TARGET_PASSWORD=$(prompt_password "Enter the password for the target server")
-    echo  # Add a newline after password input
 
     if [ -n "$SOURCE_SERVER_DOMAIN" ]; then
         log_message "Source Server: $SOURCE_SERVER_DOMAIN (IP: $SOURCE_SERVER_IP)"
@@ -189,13 +188,24 @@ main() {
             continue
         fi
 
-        # Transfer backup to target server
-        log_message "Transferring backup to target server..."
-        if ! sshpass -p "$SOURCE_PASSWORD" scp -P "$SOURCE_PORT" "$SOURCE_USER@$SOURCE_SERVER_IP:$BACKUP_FILE" "$TARGET_USER@$TARGET_SERVER_IP:$BACKUP_FILE"; then
-            log_message "Failed to transfer backup for domain $DOMAIN. Skipping."
+        # Transfer backup from source to bridge
+        log_message "Transferring backup from source server to bridge..."
+        if ! sshpass -p "$SOURCE_PASSWORD" scp -P "$SOURCE_PORT" "$SOURCE_USER@$SOURCE_SERVER_IP:$BACKUP_FILE" "$SCRIPT_DIR/temp_backup.tar"; then
+            log_message "Failed to transfer backup from source server for domain $DOMAIN. Skipping."
             cleanup_backup "$SOURCE_USER" "$SOURCE_SERVER_IP" "$SOURCE_PORT" "$SOURCE_PASSWORD" "$BACKUP_FILE"
             continue
         fi
+
+        # Transfer backup from bridge to target
+        log_message "Transferring backup from bridge to target server..."
+        if ! sshpass -p "$TARGET_PASSWORD" scp -P "$TARGET_PORT" "$SCRIPT_DIR/temp_backup.tar" "$TARGET_USER@$TARGET_SERVER_IP:$BACKUP_FILE"; then
+            log_message "Failed to transfer backup to target server for domain $DOMAIN. Skipping."
+            rm -f "$SCRIPT_DIR/temp_backup.tar"
+            continue
+        fi
+
+        # Remove temporary file from bridge
+        rm -f "$SCRIPT_DIR/temp_backup.tar"
 
         # Restore backup on target server
         log_message "Restoring backup on target server..."
