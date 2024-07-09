@@ -44,7 +44,6 @@ An advanced version of the migration script with additional features:
 - Configuration file support
 - Dry run mode
 - SSL certificate migration
-- Backup compression
 - Verbose logging
 - Component-specific migration options
 
@@ -85,9 +84,8 @@ By using these scripts, you acknowledge that you understand and accept these ris
 
 1. Clone this repository to your bridge server.
 2. Ensure you have SSH access to both the source and target Plesk servers.
-3. Install required dependencies (e.g., `sshpass`).
-4. Choose between the Basic or Pro version based on your needs.
-5. Run the script and follow the prompts.
+3. Choose between the Basic or Pro version based on your needs.
+4. Run the script and follow the prompts.
 
 For detailed usage instructions, please refer to the individual script documentation.
 

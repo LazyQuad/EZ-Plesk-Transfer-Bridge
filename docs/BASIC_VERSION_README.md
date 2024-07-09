@@ -16,7 +16,6 @@ EZ-Plesk-Transfer-Bridge-Basic is a streamlined bash script for migrating Plesk 
 
 - A Linux-based bridge server with bash
 - SSH access to both source and target Plesk servers
-- `sshpass` installed on the bridge server
 - Sufficient disk space on all servers for domain backups
 
 ## Usage
@@ -55,7 +54,6 @@ The script generates a log file in the same directory, named `migration_YYYYMMDD
 
 ## Troubleshooting
 
-- Ensure `sshpass` is installed on the bridge server
 - Verify SSH credentials for both source and target servers
 - Check that Plesk is properly installed on both servers
 - Ensure sufficient disk space on all servers

@@ -11,7 +11,6 @@ All features of the Basic version, plus:
 - Configuration file support
 - Dry run mode
 - SSL certificate migration
-- Backup compression
 - Verbose logging
 - Component-specific migration options
 
@@ -19,9 +18,7 @@ All features of the Basic version, plus:
 
 - A Linux-based bridge server with bash
 - SSH access to both source and target Plesk servers
-- `sshpass` installed on the bridge server
 - Sufficient disk space on all servers for domain backups
-- `gzip` for backup compression (optional)
 
 ## Usage
 
@@ -35,7 +32,6 @@ All features of the Basic version, plus:
 
 - `--dry-run`: Simulate the migration process without making changes
 - `--config <file>`: Specify a custom configuration file
-- `--compress`: Enable backup compression
 - `--migrate-ssl`: Include SSL certificate migration
 - `--components <list>`: Specify components to migrate (e.g., "files,databases,mail")
 - `--verbose`: Enable verbose logging
@@ -51,7 +47,6 @@ All features of the Basic version, plus:
 - Verify domain existence on source server
 - Check if domain already exists on target server
 - Create a backup of the domain on the source server
-- Compress backup if option is enabled
 - Transfer the backup to the target server
 - Restore the backup on the target server
 - Migrate SSL certificate if option is enabled
@@ -62,7 +57,7 @@ All features of the Basic version, plus:
 The configuration file (`Pro-Config.conf`) can include the following settings:
 
 - Server details (IPs, ports, usernames, passwords)
-- Default options (compression, SSL migration, etc.)
+- Default options (SSL migration, etc.)
 - Component migration preferences
 
 ## Logging
@@ -73,14 +68,12 @@ The script generates a detailed log file in the `logs` directory, named `transfe
 
 - **Dry Run Mode**: Simulates the migration process without making actual changes.
 - **SSL Migration**: Transfers and installs SSL certificates for migrated domains.
-- **Backup Compression**: Reduces transfer time and disk space usage.
 - **Verbose Logging**: Provides detailed information about each step of the migration process.
 
 ## Troubleshooting
 
 - Use the `--verbose` option for detailed logging
 - Check the configuration file for correct server details
-- Ensure all required components (e.g., `sshpass`, `gzip`) are installed
 - Verify sufficient disk space and permissions on all servers
 
 ## Security Considerations
