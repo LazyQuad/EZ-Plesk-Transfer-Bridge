@@ -6,7 +6,7 @@ if [[ $- == *i* ]]; then
     bind '"\e[B": history-search-forward'
 fi
 
-VERSION="1.2.6"
+VERSION="1.3.0"
 SCRIPT_NAME="EZ-Plesk-Transfer-Bridge-Pro"
 GITHUB_PAGE="https://github.com/LazyQuad/EZ-Plesk-Transfer-Bridge"
 
@@ -361,7 +361,7 @@ main() {
 
         # Check if domain exists on source
         verbose_log "Checking if domain exists on source server..."
-if ! ssh -p "$SOURCE_PORT" $([[ "$USE_KEY_AUTH" = true ]] && echo "-i $SSH_KEY_PATH") "$SOURCE_USER@$SOURCE_SERVER_IP" "plesk bin domain --info $DOMAIN" &>/dev/null; then
+        if ! ssh -p "$SOURCE_PORT" $([[ "$USE_KEY_AUTH" = true ]] && echo "-i $SSH_KEY_PATH") "$SOURCE_USER@$SOURCE_SERVER_IP" "plesk bin domain --info $DOMAIN" &>/dev/null; then
             log_message "WARNING" "Domain $DOMAIN does not exist on source server. Skipping."
             continue
         fi
@@ -390,21 +390,39 @@ if ! ssh -p "$SOURCE_PORT" $([[ "$USE_KEY_AUTH" = true ]] && echo "-i $SSH_KEY_P
             continue
         fi
 
-        # Transfer backup to target server
-        log_message "INFO" "Transferring backup to target server..."
-        scp_command="scp -P $SOURCE_PORT $([[ "$USE_KEY_AUTH" = true ]] && echo "-i $SSH_KEY_PATH") $SOURCE_USER@$SOURCE_SERVER_IP:$BACKUP_FILE $TARGET_USER@$TARGET_SERVER_IP:$BACKUP_FILE"
-        log_message "DEBUG" "SCP command: $scp_command"
+        # Transfer backup from source to bridge
+        log_message "INFO" "Transferring backup from source server to bridge..."
+        scp_command="scp -P $SOURCE_PORT $([[ "$USE_KEY_AUTH" = true ]] && echo "-i $SSH_KEY_PATH") $SOURCE_USER@$SOURCE_SERVER_IP:$BACKUP_FILE $SCRIPT_DIR/temp_backup.tar"
+        log_message "DEBUG" "SCP command (source to bridge): $scp_command"
 
         if [ "$DRY_RUN" = true ]; then
-            log_message "INFO" "[DRY RUN] Would transfer $BACKUP_FILE of $DOMAIN to target server"
+            log_message "INFO" "[DRY RUN] Would transfer $BACKUP_FILE of $DOMAIN from source server to bridge"
         else
-            verbose_log "Starting file transfer..."
+            verbose_log "Starting file transfer from source to bridge..."
             if ! eval "$scp_command"; then
-                log_message "ERROR" "Failed to transfer backup for domain $DOMAIN. Skipping."
+                log_message "ERROR" "Failed to transfer backup from source server for domain $DOMAIN. Skipping."
                 cleanup_backup "$SOURCE_USER" "$SOURCE_SERVER_IP" "$SOURCE_PORT" "$BACKUP_FILE"
                 continue
             fi
-            verbose_log "Backup file transferred successfully."
+            verbose_log "Backup file transferred successfully to bridge."
+        fi
+
+        # Transfer backup from bridge to target
+        log_message "INFO" "Transferring backup from bridge to target server..."
+        scp_command="scp -P $TARGET_PORT $([[ "$USE_KEY_AUTH" = true ]] && echo "-i $SSH_KEY_PATH") $SCRIPT_DIR/temp_backup.tar $TARGET_USER@$TARGET_SERVER_IP:$BACKUP_FILE"
+        log_message "DEBUG" "SCP command (bridge to target): $scp_command"
+
+        if [ "$DRY_RUN" = true ]; then
+            log_message "INFO" "[DRY RUN] Would transfer backup of $DOMAIN from bridge to target server"
+        else
+            verbose_log "Starting file transfer from bridge to target..."
+            if ! eval "$scp_command"; then
+                log_message "ERROR" "Failed to transfer backup to target server for domain $DOMAIN. Skipping."
+                rm -f "$SCRIPT_DIR/temp_backup.tar"
+                continue
+            fi
+            verbose_log "Backup file transferred successfully to target server."
+            rm -f "$SCRIPT_DIR/temp_backup.tar"
         fi
 
         # Restore backup on target server
