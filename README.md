@@ -4,6 +4,28 @@
 
 EZ-Plesk-Transfer-Bridge is a set of bash scripts designed to facilitate the migration of Plesk domains between servers using a bridge (intermediary) server. This approach offers several advantages in specific scenarios.
 
+               +--------------------+
+               |    Source Server   |
+               |   (Plesk Domains)  |
+               +---------+----------+
+                         |
+                         | Step 1: Transfer Data
+                         |
+                         v
+               +---------+----------+
+               |    Bridge Server   |
+               | (Script Runs Here) |
+               +---------+----------+
+                         |
+                         | Step 2: Transfer Data
+                         |
+                         v
+               +---------+----------+
+               |    Target Server   |
+               |   (Plesk Domains)  |
+               +--------------------+
+
+
 ## Why Use a Bridge Server?
 
 1. **Firewall Restrictions**: When direct communication between the source and target servers is restricted due to firewall rules, a bridge server can act as an intermediary to transfer data.
